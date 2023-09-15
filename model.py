@@ -98,24 +98,26 @@ class gwnet(nn.Module):
             new_dilation = 1
             for i in range(layers):
                 # dilated convolutions
-                self.filter_convs.append(nn.Conv2d(in_channels=residual_channels,
+                self.filter_convs.append(nn.Conv1d(in_channels=residual_channels,
                                                    out_channels=dilation_channels,
-                                                   kernel_size=(1,kernel_size),dilation=new_dilation))
+                                                   kernel_size=kernel_size,
+                                                   dilation=new_dilation))
 
                 self.gate_convs.append(nn.Conv1d(in_channels=residual_channels,
                                                  out_channels=dilation_channels,
-                                                 kernel_size=(1, kernel_size), dilation=new_dilation))
+                                                 kernel_size=kernel_size, 
+                                                 dilation=new_dilation))
 
                 # 1x1 convolution for residual connection
                 self.residual_convs.append(nn.Conv1d(in_channels=dilation_channels,
                                                      out_channels=residual_channels,
-                                                     kernel_size=(1, 1)))
+                                                     kernel_size=1))
 
                 # 1x1 convolution for skip connection
                 self.skip_convs.append(nn.Conv1d(in_channels=dilation_channels,
                                                  out_channels=skip_channels,
-                                                 kernel_size=(1, 1)))
-                self.bn.append(nn.BatchNorm2d(residual_channels))
+                                                 kernel_size=1))
+                self.bn.append(nn.BatchNorm1d(residual_channels))
                 new_dilation *=2
                 receptive_field += additional_scope
                 additional_scope *= 2
@@ -124,14 +126,14 @@ class gwnet(nn.Module):
 
 
 
-        self.end_conv_1 = nn.Conv2d(in_channels=skip_channels,
+        self.end_conv_1 = nn.Conv1d(in_channels=skip_channels,
                                   out_channels=end_channels,
-                                  kernel_size=(1,1),
+                                  kernel_size=1,
                                   bias=True)
 
-        self.end_conv_2 = nn.Conv2d(in_channels=end_channels,
+        self.end_conv_2 = nn.Conv1d(in_channels=end_channels,
                                     out_channels=out_dim,
-                                    kernel_size=(1,1),
+                                    kernel_size=1,
                                     bias=True)
 
         self.receptive_field = receptive_field
@@ -139,7 +141,9 @@ class gwnet(nn.Module):
 
 
     def forward(self, input):
-        in_len = input.size(3)
+
+        B, C, N, in_len = input.shape
+
         if in_len<self.receptive_field:
             x = nn.functional.pad(input,(self.receptive_field-in_len,0,0,0))
         else:
@@ -154,58 +158,59 @@ class gwnet(nn.Module):
             new_supports = self.supports + [adp]
 
         # WaveNet layers
+        B,C,N,in_len = x.shape
+        x = x.transpose(1,2).reshape(B * N, C, in_len)
         for i in range(self.blocks * self.layers):
 
             #            |----------------------------------------|     *residual*
             #            |                                        |
             #            |    |-- conv -- tanh --|                |
-            # -> dilate -|----|                  * ----|-- 1x1 -- + -->	*input*
+            # -> dilate -|----|                  * ----|-- 1x1 -- + --> *input*
             #                 |-- conv -- sigm --|     |
             #                                         1x1
             #                                          |
-            # ---------------------------------------> + ------------->	*skip*
+            # ---------------------------------------> + -------------> *skip*
 
             #(dilation, init_dilation) = self.dilations[i]
 
             #residual = dilation_func(x, dilation, init_dilation, i)
-            residual = x
+            ks = self.filter_convs[i].kernel_size[0]
+            dil = self.filter_convs[i].dilation[0]
+            residual = torch.nn.functional.pad(x, (ks//2 + dil//2 ,0))
             # dilated convolution
             filter = self.filter_convs[i](residual)
             filter = torch.tanh(filter)
             gate = self.gate_convs[i](residual)
             gate = torch.sigmoid(gate)
-            x = filter * gate
+            
+            gated_out = filter * gate
 
             # parametrized skip connection
 
-            s = x
+            s = gated_out
             s = self.skip_convs[i](s)
-            try:
-                skip = skip[:, :, :,  -s.size(3):]
-            except:
-                skip = 0
+            #try:
+            #    skip = skip[:, :, :,  -s.size(3):]
+            #except:
+            #    skip = 0
             skip = s + skip
-
 
             if self.gcn_bool and self.supports is not None:
                 if self.addaptadj:
-                    x = self.gconv[i](x, new_supports)
+                    gated_out = self.gconv[i](gated_out, new_supports)
                 else:
-                    x = self.gconv[i](x,self.supports)
+                    gated_out = self.gconv[i](gated_out,self.supports)
             else:
-                x = self.residual_convs[i](x)
+                gated_out = self.residual_convs[i](gated_out)
 
-            x = x + residual[:, :, :, -x.size(3):]
+            residual_out = x + gated_out[..., -gated_out.size(2):]
 
-
-            x = self.bn[i](x)
+            x = self.bn[i](residual_out)
+        
 
         x = F.relu(skip)
         x = F.relu(self.end_conv_1(x))
         x = self.end_conv_2(x)
         return x
-
-
-
 
 

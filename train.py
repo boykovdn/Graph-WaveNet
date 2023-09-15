@@ -5,6 +5,7 @@ import time
 import util
 import matplotlib.pyplot as plt
 from engine import trainer
+from tqdm import tqdm
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--device',type=str,default='cuda:3',help='')
@@ -66,7 +67,7 @@ def main():
     his_loss =[]
     val_time = []
     train_time = []
-    for i in range(1,args.epochs+1):
+    for i in tqdm(range(1,args.epochs+1)):
         #if i % 10 == 0:
             #lr = max(0.000002,args.learning_rate * (0.1 ** (i // 10)))
             #for g in engine.optimizer.param_groups:
@@ -75,7 +76,7 @@ def main():
         train_mape = []
         train_rmse = []
         t1 = time.time()
-        dataloader['train_loader'].shuffle()
+        #dataloader['train_loader'].shuffle()
         for iter, (x, y) in enumerate(dataloader['train_loader'].get_iterator()):
             trainx = torch.Tensor(x).to(device)
             trainx= trainx.transpose(1, 3)
