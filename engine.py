@@ -18,7 +18,8 @@ class trainer():
         output = output.reshape(16,207,12,-1)[...,-1]
         #output = output.transpose(1,3)
         #output = [batch_size,12,num_nodes,1]
-        real = torch.unsqueeze(real_val,dim=1)
+        #real = torch.unsqueeze(real_val,dim=1)
+        real = real_val#torch.unsqueeze(real_val,dim=1)
         predict = self.scaler.inverse_transform(output)
 
         loss = self.loss(predict, real, 0.0)

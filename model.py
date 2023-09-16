@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 import sys
-
+from time import time
 
 class nconv(nn.Module):
     def __init__(self):
@@ -142,6 +142,8 @@ class gwnet(nn.Module):
 
     def forward(self, input):
 
+        t0 = time()
+
         B, C, N, in_len = input.shape
 
         if in_len<self.receptive_field:
@@ -160,6 +162,10 @@ class gwnet(nn.Module):
         # WaveNet layers
         B,C,N,in_len = x.shape
         x = x.transpose(1,2).reshape(B * N, C, in_len)
+
+        t1 = time()
+        print('Start stuff {}'.format(t1-t0))
+
         for i in range(self.blocks * self.layers):
 
             #            |----------------------------------------|     *residual*
@@ -206,6 +212,10 @@ class gwnet(nn.Module):
             residual_out = x + gated_out[..., -gated_out.size(2):]
 
             x = self.bn[i](residual_out)
+
+            t2 = time()
+            print("Recurrent layer {}".format(t2 - t1))
+            t1 = t2
         
 
         x = F.relu(skip)
